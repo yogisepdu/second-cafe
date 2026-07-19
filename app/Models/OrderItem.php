@@ -7,13 +7,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class OrderItem extends Model
 {
-    //
     protected $fillable = [
         'order_id',
         'menu_id',
         'menu_name',
         'unit_price',
         'quantity',
+        'selected_options',
         'subtotal',
         'notes',
     ];
@@ -23,6 +23,7 @@ class OrderItem extends Model
         return [
             'unit_price' => 'decimal:2',
             'quantity' => 'integer',
+            'selected_options' => 'array',
             'subtotal' => 'decimal:2',
         ];
     }
@@ -31,7 +32,8 @@ class OrderItem extends Model
     {
         static::saving(function (OrderItem $orderItem) {
             $orderItem->subtotal =
-                $orderItem->unit_price * $orderItem->quantity;
+                $orderItem->unit_price
+                * $orderItem->quantity;
         });
     }
 

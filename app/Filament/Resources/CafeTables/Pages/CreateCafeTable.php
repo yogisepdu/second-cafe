@@ -8,4 +8,9 @@ use Filament\Resources\Pages\CreateRecord;
 class CreateCafeTable extends CreateRecord
 {
     protected static string $resource = CafeTableResource::class;
+
+    protected function getRedirectUrl(): string
+    {
+        return $this->getResource()::getUrl('index');
+    }
 }

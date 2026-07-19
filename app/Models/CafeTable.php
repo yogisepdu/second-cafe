@@ -45,4 +45,11 @@ class CafeTable extends Model
             'token' => $this->qr_token,
         ]);
     }
+
+    public function getDisplayNameAttribute(): string
+    {
+        return filled($this->name)
+            ? "{$this->table_number} - {$this->name}"
+            : $this->table_number;
+    }
 }
