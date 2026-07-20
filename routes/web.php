@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\CafeTableQrCodeController;
 use App\Http\Controllers\Customer\CartController;
+use App\Http\Controllers\Customer\CheckoutController;
 use App\Http\Controllers\Customer\MenuController;
 
 Route::get('/', function () {
@@ -76,3 +77,18 @@ Route::get(
 )
     ->whereUuid('token')
     ->name('customer.cart.show');
+
+Route::get(
+    '/meja/{token}/checkout',
+    [CheckoutController::class, 'create']
+)->name('customer.checkout.create');
+
+Route::post(
+    '/meja/{token}/checkout',
+    [CheckoutController::class, 'store']
+)->name('customer.checkout.store');
+
+Route::get(
+    '/meja/{token}/pesanan/{order:public_token}',
+    [CheckoutController::class, 'success']
+)->name('customer.orders.success');

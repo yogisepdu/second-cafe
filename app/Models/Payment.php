@@ -8,12 +8,27 @@ use Illuminate\Support\Str;
 
 class Payment extends Model
 {
-    //
+    public const METHOD_QRIS = 'qris';
+
+    public const METHOD_BANK_TRANSFER =
+    'transfer_bank';
+
+    public const STATUS_WAITING_VERIFICATION =
+    'menunggu_verifikasi';
+
+    public const STATUS_SUCCESS = 'berhasil';
+
+    public const STATUS_REJECTED = 'ditolak';
+
+    public const METHOD_CASHIER = 'cashier';
+
     protected $fillable = [
         'order_id',
         'payment_code',
         'method',
         'amount',
+        'amount_received',
+        'change_amount',
         'status',
         'proof_image',
         'verified_by',
@@ -26,6 +41,8 @@ class Payment extends Model
     {
         return [
             'amount' => 'decimal:2',
+            'amount_received' => 'decimal:2',
+            'change_amount' => 'decimal:2',
             'paid_at' => 'datetime',
             'verified_at' => 'datetime',
         ];
@@ -33,12 +50,28 @@ class Payment extends Model
 
     protected static function booted(): void
     {
-        static::creating(function (Payment $payment) {
+        static::creating(function (
+            Payment $payment
+        ): void {
             if (blank($payment->payment_code)) {
-                $payment->payment_code = self::generatePaymentCode();
+                $payment->payment_code =
+                    self::generatePaymentCode();
             }
+        });
 
-            if (blank($payment->paid_at)) {
+        /*
+         * Waktu pembayaran hanya diisi ketika
+         * pembayaran dinyatakan berhasil.
+         */
+        static::updating(function (
+            Payment $payment
+        ): void {
+            if (
+                $payment->isDirty('status') &&
+                $payment->status ===
+                self::STATUS_SUCCESS &&
+                blank($payment->paid_at)
+            ) {
                 $payment->paid_at = now();
             }
         });
@@ -47,9 +80,15 @@ class Payment extends Model
     private static function generatePaymentCode(): string
     {
         do {
-            $code = 'PAY-' . now()->format('Ymd') . '-'
+            $code = 'PAY-'
+                . now()->format('Ymd')
+                . '-'
                 . Str::upper(Str::random(5));
-        } while (self::where('payment_code', $code)->exists());
+        } while (
+            self::query()
+            ->where('payment_code', $code)
+            ->exists()
+        );
 
         return $code;
     }
@@ -61,6 +100,41 @@ class Payment extends Model
 
     public function verifier(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'verified_by');
+        return $this->belongsTo(
+            User::class,
+            'verified_by',
+        );
+    }
+
+    public function getMethodLabelAttribute(): string
+    {
+        return match ($this->method) {
+            self::METHOD_CASHIER =>
+            'Bayar di Kasir',
+
+            self::METHOD_QRIS =>
+            'QRIS',
+
+            self::METHOD_BANK_TRANSFER =>
+            'Transfer Bank',
+
+            default => '-',
+        };
+    }
+
+    public function getStatusLabelAttribute(): string
+    {
+        return match ($this->status) {
+            self::STATUS_WAITING_VERIFICATION =>
+            'Menunggu Verifikasi',
+
+            self::STATUS_SUCCESS =>
+            'Berhasil',
+
+            self::STATUS_REJECTED =>
+            'Ditolak',
+
+            default => '-',
+        };
     }
 }

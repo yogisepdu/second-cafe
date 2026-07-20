@@ -19,6 +19,26 @@ class Order extends Model
 
     public const PAYMENT_STATUS_PAID = 'paid';
 
+    public const PAYMENT_STATUS_FAILED = 'failed';
+
+    public const PAYMENT_STATUS_CANCELLED = 'cancelled';
+
+    public const STATUS_WAITING_PAYMENT =
+    'menunggu_pembayaran';
+
+    public const STATUS_WAITING_VERIFICATION =
+    'menunggu_verifikasi';
+
+    public const STATUS_ACCEPTED = 'diterima';
+
+    public const STATUS_PROCESSING = 'diproses';
+
+    public const STATUS_READY = 'siap';
+
+    public const STATUS_COMPLETED = 'selesai';
+
+    public const STATUS_CANCELLED = 'dibatalkan';
+
     protected $fillable = [
         'cafe_table_id',
         'order_code',
@@ -100,6 +120,61 @@ class Order extends Model
 
             self::PAYMENT_METHOD_ONLINE =>
             'Pembayaran Online',
+
+            default => '-',
+        };
+    }
+
+    public function getRouteKeyName(): string
+    {
+        return 'public_token';
+    }
+
+    public function getPaymentStatusLabelAttribute(): string
+    {
+        return match ($this->payment_status) {
+            self::PAYMENT_STATUS_UNPAID =>
+            'Belum Dibayar',
+
+            self::PAYMENT_STATUS_PENDING =>
+            'Menunggu Pembayaran',
+
+            self::PAYMENT_STATUS_PAID =>
+            'Sudah Dibayar',
+
+            self::PAYMENT_STATUS_FAILED =>
+            'Pembayaran Gagal',
+
+            self::PAYMENT_STATUS_CANCELLED =>
+            'Pembayaran Dibatalkan',
+
+            default => '-',
+        };
+    }
+
+    public function getStatusLabelAttribute(): string
+    {
+        return match ($this->status) {
+            self::STATUS_WAITING_PAYMENT =>
+            'Menunggu Pembayaran',
+
+            self::STATUS_WAITING_VERIFICATION =>
+            'Menunggu Verifikasi',
+
+            self::STATUS_ACCEPTED =>
+            'Pesanan Diterima',
+
+            self::STATUS_PROCESSING =>
+            'Sedang Diproses',
+
+            self::STATUS_READY =>
+            'Pesanan Siap',
+
+            self::STATUS_COMPLETED =>
+            'Pesanan Selesai',
+
+            self::STATUS_CANCELLED =>
+            'Pesanan Dibatalkan',
 
             default => '-',
         };

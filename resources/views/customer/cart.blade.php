@@ -707,6 +707,16 @@
                 min-height: 44px;
             }
         }
+
+        .checkout-button {
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        .checkout-button.is-loading {
+            pointer-events: none;
+            opacity: 0.65;
+        }
     </style>
 </head>
 
@@ -849,9 +859,13 @@
                         </span>
                     </div>
 
-                    <div class="checkout-button">
+                    <a class="checkout-button"
+                        href="{{ route('customer.checkout.create', [
+                            'token' => $cafeTable->qr_token,
+                        ]) }}"
+                        id="checkout-link">
                         Lanjut ke Checkout
-                    </div>
+                    </a>
 
                     <p class="checkout-note">
                         Pastikan jumlah dan catatan pesanan
@@ -1286,6 +1300,74 @@
                     }
                 );
             });
+
+        const checkoutLink = document.getElementById(
+            'checkout-link'
+        );
+
+        if (checkoutLink) {
+            checkoutLink.addEventListener(
+                'click',
+                async function(event) {
+                    event.preventDefault();
+
+                    const destination = this.href;
+
+                    /*
+                     * Memicu penyimpanan catatan ketika
+                     * pengguna masih berada di textarea.
+                     */
+                    if (
+                        document.activeElement?.classList
+                        .contains('notes-input')
+                    ) {
+                        document.activeElement.blur();
+                    }
+
+                    this.classList.add('is-loading');
+                    this.textContent =
+                        'Menyiapkan Checkout...';
+
+                    const maximumWait = Date.now() + 5000;
+
+                    while (Date.now() < maximumWait) {
+                        const pendingSave =
+                            document.querySelector(
+                                '.save-status.is-pending, ' +
+                                '.save-status.is-saving'
+                            );
+
+                        if (!pendingSave) {
+                            break;
+                        }
+
+                        await new Promise((resolve) => {
+                            setTimeout(resolve, 120);
+                        });
+                    }
+
+                    const failedSave =
+                        document.querySelector(
+                            '.save-status.is-error'
+                        );
+
+                    if (failedSave) {
+                        alert(
+                            'Masih ada perubahan yang gagal ' +
+                            'disimpan. Silakan coba simpan kembali.'
+                        );
+
+                        this.classList.remove('is-loading');
+                        this.textContent =
+                            'Lanjut ke Checkout';
+
+                        return;
+                    }
+
+                    window.location.href = destination;
+                }
+            );
+        }
 
         refreshCartTotals();
     </script>

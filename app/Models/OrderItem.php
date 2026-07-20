@@ -30,10 +30,16 @@ class OrderItem extends Model
 
     protected static function booted(): void
     {
-        static::saving(function (OrderItem $orderItem) {
-            $orderItem->subtotal =
-                $orderItem->unit_price
-                * $orderItem->quantity;
+        static::saving(function (
+            OrderItem $orderItem
+        ): void {
+            $unitPrice = (float) $orderItem->unit_price;
+            $quantity = (int) $orderItem->quantity;
+
+            $orderItem->subtotal = round(
+                $unitPrice * $quantity,
+                2,
+            );
         });
     }
 
