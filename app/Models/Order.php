@@ -89,10 +89,33 @@ class Order extends Model
             $code = 'ORD-'
                 . now()->format('Ymd')
                 . '-'
-                . Str::upper(Str::random(5));
+                . self::generateCashierCode();
         } while (
-            self::where('order_code', $code)->exists()
+            self::query()
+            ->where('order_code', $code)
+            ->exists()
         );
+
+        return $code;
+    }
+
+    private static function generateCashierCode(): string
+    {
+        /*
+     * Tidak menggunakan karakter yang mudah
+     * tertukar seperti I, O, 0, dan 1.
+     */
+        $characters =
+            'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+        $code = '';
+
+        for ($index = 0; $index < 5; $index++) {
+            $code .= $characters[random_int(
+                0,
+                strlen($characters) - 1
+            )];
+        }
 
         return $code;
     }
@@ -123,6 +146,20 @@ class Order extends Model
 
             default => '-',
         };
+    }
+
+    public function getCashierCodeAttribute(): string
+    {
+        if (blank($this->order_code)) {
+            return '-';
+        }
+
+        return Str::upper(
+            Str::afterLast(
+                $this->order_code,
+                '-'
+            )
+        );
     }
 
     public function getRouteKeyName(): string

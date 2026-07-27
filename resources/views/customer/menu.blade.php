@@ -1,5 +1,24 @@
 @php
     $totalMenus = $categories->sum(fn($category) => $category->menus->count());
+    $trackedOrders = $trackedOrders ?? collect();
+
+    /*
+    |--------------------------------------------------------------------------
+    | URL untuk JavaScript
+    |--------------------------------------------------------------------------
+    |
+    | URL dibuat lebih dahulu di PHP agar tidak menggunakan direktif JSON dan
+    | pemanggilan route secara bertingkat. Bentuk bertingkat tersebut dapat
+    | menimbulkan ParseError ketika array ditulis dalam beberapa baris.
+    |
+    */
+    $cartStoreUrl = route('customer.cart.store', [
+        'token' => $cafeTable->qr_token,
+    ]);
+
+    $cartIndexUrl = route('customer.cart.index', [
+        'token' => $cafeTable->qr_token,
+    ]);
 @endphp
 
 <!DOCTYPE html>
@@ -46,6 +65,10 @@
             background: var(--background);
             color: var(--text);
             font-family: Inter, Arial, sans-serif;
+        }
+
+        body.has-active-cart {
+            padding-bottom: 105px;
         }
 
         button,
@@ -570,6 +593,7 @@
         }
 
         .menu-dialog {
+            position: relative;
             width: min(520px, calc(100% - 24px));
             max-height: calc(100vh - 30px);
             overflow: hidden;
@@ -599,14 +623,30 @@
         }
 
         .dialog-image {
+            position: relative;
+            z-index: 1;
+            display: block;
             width: 100%;
             height: 100%;
             object-fit: cover;
         }
 
+        .dialog-image[hidden] {
+            display: none;
+        }
+
+        .dialog-image-placeholder {
+            position: absolute;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            color: var(--primary-dark);
+            font-size: 56px;
+        }
+
         .dialog-close {
             position: absolute;
-            z-index: 2;
+            z-index: 5;
             top: 14px;
             right: 14px;
             display: grid;
@@ -777,6 +817,54 @@
         .cart-label {
             text-decoration: none;
         }
+
+        .app-toast {
+            position: fixed;
+            z-index: 100;
+            right: 18px;
+            bottom: 18px;
+            width: min(360px, calc(100% - 36px));
+            padding: 14px 16px;
+            border: 1px solid #bbf7d0;
+            border-radius: 14px;
+            background: #ffffff;
+            color: #166534;
+            box-shadow: 0 18px 45px rgba(15, 23, 42, 0.2);
+            font-size: 12px;
+            font-weight: 700;
+            line-height: 1.5;
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(18px);
+            transition:
+                opacity 0.2s ease,
+                transform 0.2s ease;
+        }
+
+        .app-toast.is-visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .app-toast.is-error {
+            border-color: #fecaca;
+            color: #b91c1c;
+        }
+
+        body.has-active-cart .app-toast {
+            bottom: 100px;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+
+            *,
+            *::before,
+            *::after {
+                scroll-behavior: auto !important;
+                transition-duration: 0.01ms !important;
+                animation-duration: 0.01ms !important;
+            }
+        }
     </style>
 
     <meta content="{{ csrf_token() }}" name="csrf-token">
@@ -852,6 +940,15 @@
                 @endif
             </div>
         </section>
+
+        @if ($trackedOrders->isNotEmpty())
+            <div class="container">
+                @include('customer.partials.order-tracker', [
+                    'trackedOrders' => $trackedOrders,
+                    'cafeTable' => $cafeTable,
+                ])
+            </div>
+        @endif
 
         <section class="menu-content">
             <div class="container">
@@ -962,13 +1059,17 @@
     </footer>
 
     <dialog class="menu-dialog" id="menuDialog">
+        <button aria-label="Tutup detail menu" class="dialog-close" id="closeMenuDialog" type="button">
+            ×
+        </button>
+
         <div class="dialog-content">
             <div class="dialog-image-wrapper">
-                <img alt="" class="dialog-image" id="dialogImage" src="">
+                <div class="dialog-image-placeholder" id="dialogImagePlaceholder">
+                    🍽
+                </div>
 
-                <button aria-label="Tutup" class="dialog-close" id="closeMenuDialog" type="button">
-                    ×
-                </button>
+                <img alt="" class="dialog-image" hidden id="dialogImage">
             </div>
 
             <form id="addToCartForm">
@@ -1034,6 +1135,8 @@
             Tinjau Pesanan
         </a>
     </div>
+
+    <div aria-live="polite" class="app-toast" id="appToast" role="status"></div>
 
     <script>
         const searchInput =
@@ -1137,13 +1240,11 @@
             .querySelector('meta[name="csrf-token"]')
             .getAttribute('content');
 
-        const cartStoreUrl = @json(route('customer.cart.store', [
-                'token' => $cafeTable->qr_token,
-            ]));
+        const cartStoreUrl =
+            {{ \Illuminate\Support\Js::from($cartStoreUrl) }};
 
-        const cartIndexUrl = @json(route('customer.cart.index', [
-                'token' => $cafeTable->qr_token,
-            ]));
+        const cartIndexUrl =
+            {{ \Illuminate\Support\Js::from($cartIndexUrl) }};
 
         const menuDialog =
             document.getElementById('menuDialog');
@@ -1168,6 +1269,11 @@
         const dialogImage =
             document.getElementById('dialogImage');
 
+        const dialogImagePlaceholder =
+            document.getElementById(
+                'dialogImagePlaceholder'
+            );
+
         const dialogNotes =
             document.getElementById('dialogNotes');
 
@@ -1181,6 +1287,51 @@
 
         let currentQuantity = 1;
         let currentPrice = 0;
+        let toastTimeout = null;
+
+        function showToast(
+            message,
+            type = 'success'
+        ) {
+            const toast =
+                document.getElementById('appToast');
+
+            window.clearTimeout(toastTimeout);
+
+            toast.textContent = message;
+
+            toast.classList.toggle(
+                'is-error',
+                type === 'error'
+            );
+
+            toast.classList.add('is-visible');
+
+            toastTimeout = window.setTimeout(() => {
+                toast.classList.remove('is-visible');
+            }, 4000);
+        }
+
+        async function readJsonResponse(response) {
+            const contentType =
+                response.headers.get(
+                    'content-type'
+                ) || '';
+
+            if (
+                !contentType.includes(
+                    'application/json'
+                )
+            ) {
+                return {};
+            }
+
+            try {
+                return await response.json();
+            } catch (error) {
+                return {};
+            }
+        }
 
         function rupiah(value) {
             return new Intl.NumberFormat(
@@ -1203,26 +1354,82 @@
                 );
         }
 
-        function updateCartBar(cart) {
+        function resolveCartPayload(payload) {
+            if (payload?.cart) {
+                return payload.cart;
+            }
+
+            if (payload?.data?.cart) {
+                return payload.data.cart;
+            }
+
+            if (payload?.data) {
+                return payload.data;
+            }
+
+            return payload || {};
+        }
+
+        function getResponseError(
+            result,
+            fallbackMessage
+        ) {
+            if (result?.message) {
+                return result.message;
+            }
+
+            if (result?.errors) {
+                const firstError = Object.values(
+                    result.errors
+                ).flat()[0];
+
+                if (firstError) {
+                    return firstError;
+                }
+            }
+
+            return fallbackMessage;
+        }
+
+        function updateCartBar(payload) {
+            const cart = resolveCartPayload(
+                payload
+            );
+
             const cartBar =
                 document.getElementById('cartBar');
 
-            if (cart.total_quantity < 1) {
+            const totalQuantity = Number(
+                cart.total_quantity ?? 0
+            );
+
+            const totalAmount = Number(
+                cart.total_amount ?? 0
+            );
+
+            if (totalQuantity < 1) {
                 cartBar.hidden = true;
+                document.body.classList.remove(
+                    'has-active-cart'
+                );
                 return;
             }
 
             document.getElementById(
                     'cartCount'
                 ).textContent =
-                cart.total_quantity + ' item';
+                totalQuantity + ' item';
 
             document.getElementById(
                     'cartTotal'
                 ).textContent =
-                rupiah(cart.total_amount);
+                rupiah(totalAmount);
 
             cartBar.hidden = false;
+
+            document.body.classList.add(
+                'has-active-cart'
+            );
         }
 
         document.querySelectorAll(
@@ -1259,12 +1466,15 @@
                         dialogImage.alt =
                             this.dataset.menuName;
 
-                        dialogImage.parentElement.hidden =
-                            false;
+                        dialogImage.hidden = false;
+                        dialogImagePlaceholder.hidden =
+                            true;
                     } else {
                         dialogImage.removeAttribute('src');
-                        dialogImage.parentElement.hidden =
-                            true;
+                        dialogImage.alt = '';
+                        dialogImage.hidden = true;
+                        dialogImagePlaceholder.hidden =
+                            false;
                     }
 
                     updateDialogTotal();
@@ -1278,6 +1488,23 @@
         ).addEventListener('click', () => {
             menuDialog.close();
         });
+
+        dialogImage.addEventListener(
+            'error',
+            () => {
+                dialogImage.hidden = true;
+                dialogImagePlaceholder.hidden = false;
+            }
+        );
+
+        menuDialog.addEventListener(
+            'click',
+            (event) => {
+                if (event.target === menuDialog) {
+                    menuDialog.close();
+                }
+            }
+        );
 
         document.getElementById(
             'increaseQuantity'
@@ -1326,19 +1553,31 @@
                     );
 
                     const result =
-                        await response.json();
+                        await readJsonResponse(
+                            response
+                        );
 
                     if (!response.ok) {
                         throw new Error(
-                            result.message ||
-                            'Pesanan gagal ditambahkan.'
+                            getResponseError(
+                                result,
+                                'Pesanan gagal ditambahkan.'
+                            )
                         );
                     }
 
                     updateCartBar(result);
                     menuDialog.close();
+
+                    showToast(
+                        'Menu berhasil ditambahkan ke pesanan.'
+                    );
                 } catch (error) {
-                    alert(error.message);
+                    showToast(
+                        error.message,
+                        'error'
+                    );
+
                     updateDialogTotal();
                 } finally {
                     submitCartButton.disabled = false;
@@ -1346,13 +1585,37 @@
             }
         );
 
-        fetch(cartIndexUrl, {
-                headers: {
-                    'Accept': 'application/json',
-                },
-            })
-            .then((response) => response.json())
-            .then(updateCartBar);
+        async function loadCart() {
+            try {
+                const response = await fetch(
+                    cartIndexUrl, {
+                        method: 'GET',
+                        headers: {
+                            Accept: 'application/json',
+                        },
+                        cache: 'no-store',
+                    }
+                );
+
+                const result =
+                    await readJsonResponse(response);
+
+                if (!response.ok) {
+                    throw new Error(
+                        getResponseError(
+                            result,
+                            'Keranjang gagal dimuat.'
+                        )
+                    );
+                }
+
+                updateCartBar(result);
+            } catch (error) {
+                console.error(error);
+            }
+        }
+
+        loadCart();
     </script>
 
 </body>

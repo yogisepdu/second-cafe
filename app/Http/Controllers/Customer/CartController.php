@@ -5,44 +5,57 @@ namespace App\Http\Controllers\Customer;
 use App\Http\Controllers\Controller;
 use App\Models\CafeTable;
 use App\Models\Menu;
+use App\Support\CustomerCart;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 
 class CartController extends Controller
 {
-    public function show(string $token): View
-    {
+    public function show(
+        string $token,
+        CustomerCart $customerCart,
+    ): View {
         $cafeTable = $this->findTable($token);
 
-        $cart = session()->get(
-            $this->cartKey($token),
-            [],
+        $snapshot = $customerCart->snapshot(
+            $token,
         );
 
         return view('customer.cart', [
             'cafeTable' => $cafeTable,
-            'cart' => $this->cartSummary($cart),
+            'cart' => $this->cartSummary(
+                $snapshot,
+            ),
         ]);
     }
 
-    public function index(string $token): JsonResponse
-    {
+    public function index(
+        string $token,
+        CustomerCart $customerCart,
+    ): JsonResponse {
         $this->findTable($token);
 
-        $cart = session()->get(
-            $this->cartKey($token),
-            [],
+        /*
+     * Pengecekan otomatis tidak dianggap sebagai
+     * aktivitas pelanggan.
+     */
+        $snapshot = $customerCart->snapshot(
+            $token,
+            false,
         );
 
-        return response()->json(
-            $this->cartSummary($cart)
+        return $this->cartResponse(
+            $snapshot,
         );
     }
 
     public function store(
         Request $request,
-        string $token
+        string $token,
+        CustomerCart $customerCart,
     ): JsonResponse {
         $this->findTable($token);
 
@@ -71,64 +84,86 @@ class CartController extends Controller
         $menu = Menu::query()
             ->whereKey($validated['menu_id'])
             ->where('is_available', true)
-            ->whereHas('category', function ($query) {
-                $query->where('is_active', true);
-            })
+            ->whereHas(
+                'category',
+                fn($query) => $query->where(
+                    'is_active',
+                    true,
+                ),
+            )
             ->firstOrFail();
 
-        $notes = trim($validated['notes'] ?? '');
+        $notes = trim(
+            (string) ($validated['notes'] ?? '')
+        );
 
-        $selectedOptions =
-            $validated['selected_options'] ?? [];
+        $selectedOptions = array_values(
+            $validated['selected_options'] ?? [],
+        );
 
         $lineId = sha1(
-            $menu->id
+            $menu->getKey()
                 . '|'
                 . $notes
                 . '|'
-                . json_encode($selectedOptions)
+                . json_encode(
+                    $selectedOptions,
+                    JSON_UNESCAPED_UNICODE
+                        | JSON_UNESCAPED_SLASHES,
+                )
         );
 
-        $cartKey = $this->cartKey($token);
+        $snapshot = $customerCart->snapshot(
+            $token,
+        );
 
-        $cart = session()->get($cartKey, []);
+        $cart = $snapshot['items'];
 
         if (isset($cart[$lineId])) {
             $cart[$lineId]['quantity'] = min(
                 99,
-                $cart[$lineId]['quantity']
-                    + $validated['quantity']
+                (int) $cart[$lineId]['quantity']
+                    + (int) $validated['quantity'],
             );
 
+            /*
+             * Harga diperbarui berdasarkan database setiap
+             * menu ditambahkan kembali.
+             */
             $cart[$lineId]['unit_price'] =
                 (float) $menu->price;
         } else {
             $cart[$lineId] = [
                 'line_id' => $lineId,
-                'menu_id' => $menu->id,
+                'menu_id' => $menu->getKey(),
                 'name' => $menu->name,
                 'image' => $menu->image,
-                'unit_price' => (float) $menu->price,
-                'quantity' => $validated['quantity'],
+                'unit_price' =>
+                (float) $menu->price,
+                'quantity' =>
+                (int) $validated['quantity'],
                 'notes' => $notes,
                 'selected_options' =>
                 $selectedOptions,
             ];
         }
 
-        session()->put($cartKey, $cart);
+        $snapshot = $customerCart->replace(
+            $token,
+            $cart,
+        );
 
-        return response()->json([
-            'message' =>
+        return $this->cartResponse(
+            $snapshot,
             'Menu berhasil ditambahkan.',
-            ...$this->cartSummary($cart),
-        ]);
+        );
     }
 
     public function update(
         Request $request,
         string $token,
-        string $lineId
+        string $lineId,
+        CustomerCart $customerCart,
     ): JsonResponse {
         $this->findTable($token);
 
@@ -146,74 +181,148 @@ class CartController extends Controller
             ],
         ]);
 
-        $cartKey = $this->cartKey($token);
+        $snapshot = $customerCart->snapshot(
+            $token,
+        );
 
-        $cart = session()->get($cartKey, []);
+        $cart = $snapshot['items'];
 
-        abort_unless(isset($cart[$lineId]), 404);
+        abort_unless(
+            isset($cart[$lineId]),
+            404,
+            'Item keranjang tidak ditemukan atau sudah kedaluwarsa.',
+        );
 
         $cart[$lineId]['quantity'] =
-            $validated['quantity'];
+            (int) $validated['quantity'];
 
-        $cart[$lineId]['notes'] =
-            trim($validated['notes'] ?? '');
+        $cart[$lineId]['notes'] = trim(
+            (string) ($validated['notes'] ?? '')
+        );
 
-        session()->put($cartKey, $cart);
+        $snapshot = $customerCart->replace(
+            $token,
+            $cart,
+        );
 
-        return response()->json([
-            'message' => 'Pesanan diperbarui.',
-            ...$this->cartSummary($cart),
-        ]);
+        return $this->cartResponse(
+            $snapshot,
+            'Pesanan diperbarui.',
+        );
     }
 
     public function destroy(
         string $token,
-        string $lineId
+        string $lineId,
+        CustomerCart $customerCart,
     ): JsonResponse {
         $this->findTable($token);
 
-        $cartKey = $this->cartKey($token);
+        $snapshot = $customerCart->snapshot(
+            $token,
+        );
 
-        $cart = session()->get($cartKey, []);
+        $cart = $snapshot['items'];
 
-        abort_unless(isset($cart[$lineId]), 404);
+        abort_unless(
+            isset($cart[$lineId]),
+            404,
+            'Item keranjang tidak ditemukan atau sudah kedaluwarsa.',
+        );
 
         unset($cart[$lineId]);
 
-        session()->put($cartKey, $cart);
+        $snapshot = $customerCart->replace(
+            $token,
+            $cart,
+        );
 
-        return response()->json([
-            'message' =>
+        return $this->cartResponse(
+            $snapshot,
             'Menu dihapus dari keranjang.',
-            ...$this->cartSummary($cart),
-        ]);
+        );
     }
 
-    private function findTable(string $token): CafeTable
-    {
+    private function findTable(
+        string $token
+    ): CafeTable {
         return CafeTable::query()
             ->where('qr_token', $token)
             ->where('is_active', true)
             ->firstOrFail();
     }
 
-    private function cartKey(string $token): string
-    {
-        return "customer_carts.{$token}";
+    /**
+     * @param array{
+     *     items: array<string, array<string, mixed>>,
+     *     updated_at: int|null,
+     *     expires_at: int|null
+     * } $snapshot
+     */
+    private function cartResponse(
+        array $snapshot,
+        ?string $message = null,
+    ): JsonResponse {
+        $response = $this->cartSummary(
+            $snapshot,
+        );
+
+        if (filled($message)) {
+            $response = [
+                'message' => $message,
+                ...$response,
+            ];
+        }
+
+        return response()
+            ->json($response)
+            ->withHeaders([
+                'Cache-Control' =>
+                'no-store, no-cache, must-revalidate',
+            ]);
     }
 
-    private function cartSummary(array $cart): array
-    {
-        $items = collect($cart)
+    /**
+     * @param array{
+     *     items: array<string, array<string, mixed>>,
+     *     updated_at: int|null,
+     *     expires_at: int|null
+     * } $snapshot
+     */
+    private function cartSummary(
+        array $snapshot
+    ): array {
+        $items = collect($snapshot['items'])
             ->map(function (array $item): array {
-                $item['subtotal'] =
-                    $item['unit_price']
-                    * $item['quantity'];
+                $quantity = max(
+                    1,
+                    min(
+                        99,
+                        (int) (
+                            $item['quantity'] ?? 1
+                        ),
+                    ),
+                );
 
-                $item['image_url'] =
-                    filled($item['image'])
-                    ? asset(
-                        'storage/' . $item['image']
+                $unitPrice = round(
+                    (float) (
+                        $item['unit_price'] ?? 0
+                    ),
+                    2,
+                );
+
+                $item['quantity'] = $quantity;
+                $item['unit_price'] = $unitPrice;
+                $item['subtotal'] = round(
+                    $unitPrice * $quantity,
+                    2,
+                );
+
+                $item['image_url'] = filled(
+                    $item['image'] ?? null
+                )
+                    ? Storage::disk('public')->url(
+                        $item['image'],
                     )
                     : null;
 
@@ -221,12 +330,30 @@ class CartController extends Controller
             })
             ->values();
 
+        $expiresAt = $snapshot['expires_at'];
+
         return [
             'items' => $items->all(),
             'total_quantity' =>
-            $items->sum('quantity'),
-            'total_amount' =>
-            $items->sum('subtotal'),
+            (int) $items->sum('quantity'),
+            'total_amount' => round(
+                (float) $items->sum('subtotal'),
+                2,
+            ),
+            'expires_at' => $expiresAt
+                ? Carbon::createFromTimestamp(
+                    $expiresAt,
+                    config('app.timezone'),
+                )->toIso8601String()
+                : null,
+            'expires_in_seconds' => $expiresAt
+                ? max(
+                    0,
+                    $expiresAt - now()->timestamp,
+                )
+                : 0,
+            'lifetime_minutes' =>
+            CustomerCart::LIFETIME_MINUTES,
         ];
     }
 }

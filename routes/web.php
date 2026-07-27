@@ -1,30 +1,77 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\CafeTableQrCodeController;
 use App\Http\Controllers\Customer\CartController;
 use App\Http\Controllers\Customer\CheckoutController;
 use App\Http\Controllers\Customer\MenuController;
+use Illuminate\Support\Facades\Route;
+
+/*
+|--------------------------------------------------------------------------
+| Pola Parameter Route
+|--------------------------------------------------------------------------
+|
+| Token meja dan public token order menggunakan UUID.
+| Line ID keranjang merupakan hasil SHA-1 sepanjang 40 karakter.
+|
+*/
+
+Route::pattern(
+    'token',
+    '[0-9a-fA-F]{8}-'
+        . '[0-9a-fA-F]{4}-'
+        . '[0-9a-fA-F]{4}-'
+        . '[0-9a-fA-F]{4}-'
+        . '[0-9a-fA-F]{12}'
+);
+
+Route::pattern(
+    'order',
+    '[0-9a-fA-F]{8}-'
+        . '[0-9a-fA-F]{4}-'
+        . '[0-9a-fA-F]{4}-'
+        . '[0-9a-fA-F]{4}-'
+        . '[0-9a-fA-F]{12}'
+);
+
+Route::pattern(
+    'lineId',
+    '[0-9a-fA-F]{40}'
+);
+
+/*
+|--------------------------------------------------------------------------
+| Halaman Utama
+|--------------------------------------------------------------------------
+*/
 
 Route::get('/', function () {
     return view('welcome');
-});
+})->name('home');
 
-Route::get('/meja/{token}', [MenuController::class, 'index'])
-    ->whereUuid('token')
-    ->name('customer.menu');
+/*
+|--------------------------------------------------------------------------
+| QR Code Meja untuk Admin
+|--------------------------------------------------------------------------
+|
+| Route ini hanya dapat diakses oleh pengguna yang sudah login.
+| Pemeriksaan role admin tetap dilakukan di dalam controller.
+|
+*/
 
 Route::middleware('auth')
     ->prefix('admin/qr-meja')
     ->name('admin.cafe-tables.qr.')
-    ->group(function () {
+    ->group(function (): void {
         Route::get(
             '/{cafeTable}',
             [
                 CafeTableQrCodeController::class,
-                'show',
+                'print',
             ]
-        )->name('print');
+        )
+            ->whereNumber('cafeTable')
+            ->name('print');
 
         Route::get(
             '/{cafeTable}/image',
@@ -32,7 +79,9 @@ Route::middleware('auth')
                 CafeTableQrCodeController::class,
                 'image',
             ]
-        )->name('image');
+        )
+            ->whereNumber('cafeTable')
+            ->name('image');
 
         Route::get(
             '/{cafeTable}/download',
@@ -40,55 +89,128 @@ Route::middleware('auth')
                 CafeTableQrCodeController::class,
                 'download',
             ]
-        )->name('download');
+        )
+            ->whereNumber('cafeTable')
+            ->name('download');
     });
 
-Route::get(
-    '/meja/{token}/keranjang',
-    [CartController::class, 'index']
-)
-    ->whereUuid('token')
-    ->name('customer.cart.index');
+/*
+|--------------------------------------------------------------------------
+| Halaman Pelanggan
+|--------------------------------------------------------------------------
+|
+| Semua route pelanggan menggunakan token QR Code meja sebagai
+| identitas meja. Pola UUID sudah ditentukan pada bagian atas.
+|
+*/
 
-Route::post(
-    '/meja/{token}/keranjang',
-    [CartController::class, 'store']
-)
-    ->whereUuid('token')
-    ->name('customer.cart.store');
+Route::prefix('meja/{token}')
+    ->name('customer.')
+    ->group(function (): void {
+        /*
+        |--------------------------------------------------------------------------
+        | Menu
+        |--------------------------------------------------------------------------
+        */
 
-Route::patch(
-    '/meja/{token}/keranjang/{lineId}',
-    [CartController::class, 'update']
-)
-    ->whereUuid('token')
-    ->name('customer.cart.update');
+        Route::get(
+            '/',
+            [MenuController::class, 'index']
+        )
+            ->block(5, 5)
+            ->name('menu');
 
-Route::delete(
-    '/meja/{token}/keranjang/{lineId}',
-    [CartController::class, 'destroy']
-)
-    ->whereUuid('token')
-    ->name('customer.cart.destroy');
+        /*
+        |--------------------------------------------------------------------------
+        | Keranjang
+        |--------------------------------------------------------------------------
+        */
 
-Route::get(
-    '/meja/{token}/tinjau-pesanan',
-    [CartController::class, 'show']
-)
-    ->whereUuid('token')
-    ->name('customer.cart.show');
+        Route::get(
+            '/keranjang',
+            [CartController::class, 'index']
+        )
+            ->block(5, 5)
+            ->name('cart.index');
 
-Route::get(
-    '/meja/{token}/checkout',
-    [CheckoutController::class, 'create']
-)->name('customer.checkout.create');
+        Route::post(
+            '/keranjang',
+            [CartController::class, 'store']
+        )
+            ->block(10, 10)
+            ->middleware('throttle:60,1')
+            ->name('cart.store');
 
-Route::post(
-    '/meja/{token}/checkout',
-    [CheckoutController::class, 'store']
-)->name('customer.checkout.store');
+        Route::patch(
+            '/keranjang/{lineId}',
+            [CartController::class, 'update']
+        )
+            ->block(10, 10)
+            ->middleware('throttle:60,1')
+            ->name('cart.update');
 
-Route::get(
-    '/meja/{token}/pesanan/{order:public_token}',
-    [CheckoutController::class, 'success']
-)->name('customer.orders.success');
+        Route::delete(
+            '/keranjang/{lineId}',
+            [CartController::class, 'destroy']
+        )
+            ->block(10, 10)
+            ->middleware('throttle:60,1')
+            ->name('cart.destroy');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Tinjau Pesanan
+        |--------------------------------------------------------------------------
+        */
+
+        Route::get(
+            '/tinjau-pesanan',
+            [CartController::class, 'show']
+        )
+            ->block(5, 5)
+            ->name('cart.show');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Checkout
+        |--------------------------------------------------------------------------
+        */
+
+        Route::get(
+            '/checkout',
+            [CheckoutController::class, 'create']
+        )
+            ->block(5, 5)
+            ->name('checkout.create');
+
+        Route::post(
+            '/checkout',
+            [CheckoutController::class, 'store']
+        )
+            ->block(30, 30)
+            ->name('checkout.store');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Detail dan Status Pesanan
+        |--------------------------------------------------------------------------
+        |
+        | Parameter order diambil berdasarkan kolom public_token.
+        | Controller tetap memeriksa bahwa order berasal dari meja
+        | dengan token yang sama.
+        |
+        */
+
+        Route::get(
+            '/pesanan/{order:public_token}/status',
+            [CheckoutController::class, 'status']
+        )
+            ->middleware('throttle:60,1')
+            ->name('orders.status');
+
+        Route::get(
+            '/pesanan/{order:public_token}',
+            [CheckoutController::class, 'success']
+        )
+            ->name('orders.success');
+    });

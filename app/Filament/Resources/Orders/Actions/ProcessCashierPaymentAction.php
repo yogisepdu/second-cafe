@@ -40,7 +40,7 @@ class ProcessCashierPaymentAction
 
             ->modalHeading(
                 fn(Order $record): string =>
-                "Pembayaran {$record->order_code}"
+                "Pembayaran {$record->cashier_code}"
             )
 
             ->modalDescription(
@@ -252,12 +252,10 @@ class ProcessCashierPaymentAction
                     $record->refresh();
 
                     Notification::make()
-                        ->title(
-                            'Pembayaran berhasil'
-                        )
+                        ->title('Pembayaran berhasil')
                         ->body(
                             'Pesanan '
-                                . $record->order_code
+                                . $record->cashier_code
                                 . ' sudah dibayar. Kembalian: Rp'
                                 . number_format(
                                     $result['change_amount'],

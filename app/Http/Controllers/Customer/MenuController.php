@@ -5,12 +5,15 @@ namespace App\Http\Controllers\Customer;
 use App\Http\Controllers\Controller;
 use App\Models\CafeTable;
 use App\Models\Category;
+use App\Support\CustomerOrderTracker;
 use Illuminate\View\View;
 
 class MenuController extends Controller
 {
-    public function index(string $token): View
-    {
+    public function index(
+        string $token,
+        CustomerOrderTracker $orderTracker,
+    ): View {
         $cafeTable = CafeTable::query()
             ->where('qr_token', $token)
             ->where('is_active', true)
@@ -18,11 +21,11 @@ class MenuController extends Controller
 
         $categories = Category::query()
             ->where('is_active', true)
-            ->whereHas('menus', function ($query) {
+            ->whereHas('menus', function ($query): void {
                 $query->where('is_available', true);
             })
             ->with([
-                'menus' => function ($query) {
+                'menus' => function ($query): void {
                     $query
                         ->where('is_available', true)
                         ->orderBy('name');
@@ -31,9 +34,14 @@ class MenuController extends Controller
             ->orderBy('name')
             ->get();
 
+        $trackedOrders = $orderTracker->getForTable(
+            $cafeTable,
+        );
+
         return view('customer.menu', compact(
             'cafeTable',
             'categories',
+            'trackedOrders',
         ));
     }
 }
