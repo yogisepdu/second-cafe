@@ -3,8 +3,8 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <meta content="{{ csrf_token() }}" name="csrf-token">
 
     <title>Checkout - Second Cafe</title>
 
@@ -313,7 +313,7 @@
             transform: translateY(-1px);
         }
 
-        .payment-option input:checked + .payment-card {
+        .payment-option input:checked+.payment-card {
             border-color: var(--primary);
             background: var(--primary-soft);
             box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.12);
@@ -593,10 +593,7 @@
 <body>
     <header class="topbar">
         <div class="topbar-content container">
-            <a
-                class="back-link"
-                href="{{ route('customer.cart.show', ['token' => $cafeTable->qr_token]) }}"
-            >
+            <a class="back-link" href="{{ route('customer.cart.show', ['token' => $cafeTable->qr_token]) }}">
                 <span>←</span>
                 <span>Kembali ke Pesanan</span>
             </a>
@@ -634,19 +631,11 @@
             </div>
         @endif
 
-        <form
-            id="checkout-form"
-            class="checkout-layout"
-            method="POST"
-            action="{{ route('customer.checkout.store', ['token' => $cafeTable->qr_token]) }}"
-        >
+        <form action="{{ route('customer.checkout.store', ['token' => $cafeTable->qr_token]) }}" class="checkout-layout"
+            id="checkout-form" method="POST">
             @csrf
 
-            <input
-                type="hidden"
-                name="checkout_token"
-                value="{{ $checkoutToken }}"
-            >
+            <input name="checkout_token" type="hidden" value="{{ $checkoutToken }}">
 
             <div class="form-column">
                 <section class="section-card">
@@ -665,17 +654,10 @@
                                 Nama Lengkap <span class="required">*</span>
                             </label>
 
-                            <input
-                                id="customer_name"
-                                class="form-input @error('customer_name') is-invalid @enderror"
-                                type="text"
-                                name="customer_name"
-                                value="{{ old('customer_name') }}"
-                                maxlength="100"
-                                placeholder="Masukkan nama lengkap"
-                                autocomplete="name"
-                                required
-                            >
+                            <input autocomplete="name" class="form-input @error('customer_name') is-invalid @enderror"
+                                id="customer_name" maxlength="100" name="customer_name"
+                                placeholder="Masukkan nama lengkap" required type="text"
+                                value="{{ old('customer_name') }}">
 
                             @error('customer_name')
                                 <p class="field-error">{{ $message }}</p>
@@ -687,18 +669,10 @@
                                 Nomor HP <span class="required">*</span>
                             </label>
 
-                            <input
-                                id="customer_phone"
-                                class="form-input @error('customer_phone') is-invalid @enderror"
-                                type="tel"
-                                name="customer_phone"
-                                value="{{ old('customer_phone') }}"
-                                maxlength="20"
-                                placeholder="Contoh: 081234567890"
-                                inputmode="tel"
-                                autocomplete="tel"
-                                required
-                            >
+                            <input autocomplete="tel" class="form-input @error('customer_phone') is-invalid @enderror"
+                                id="customer_phone" inputmode="tel" maxlength="20" name="customer_phone"
+                                placeholder="Contoh: 081234567890" required type="tel"
+                                value="{{ old('customer_phone') }}">
 
                             @error('customer_phone')
                                 <p class="field-error">{{ $message }}</p>
@@ -710,17 +684,9 @@
                                 Email Struk <span class="required">*</span>
                             </label>
 
-                            <input
-                                id="customer_email"
-                                class="form-input @error('customer_email') is-invalid @enderror"
-                                type="email"
-                                name="customer_email"
-                                value="{{ old('customer_email') }}"
-                                maxlength="150"
-                                placeholder="nama@email.com"
-                                autocomplete="email"
-                                required
-                            >
+                            <input autocomplete="email" class="form-input @error('customer_email') is-invalid @enderror"
+                                id="customer_email" maxlength="150" name="customer_email" placeholder="nama@email.com"
+                                required type="email" value="{{ old('customer_email') }}">
 
                             @error('customer_email')
                                 <p class="field-error">{{ $message }}</p>
@@ -743,13 +709,8 @@
 
                     <div class="payment-grid">
                         <label class="payment-option">
-                            <input
-                                type="radio"
-                                name="payment_method"
-                                value="cashier"
-                                @checked(old('payment_method', 'cashier') === 'cashier')
-                                required
-                            >
+                            <input @checked(old('payment_method', 'cashier') === 'cashier') name="payment_method" required type="radio"
+                                value="cashier">
 
                             <span class="payment-card">
                                 <span class="payment-icon">💵</span>
@@ -761,19 +722,20 @@
                         </label>
 
                         <label class="payment-option">
-                            <input
-                                type="radio"
-                                name="payment_method"
-                                value="online"
-                                @checked(old('payment_method') === 'online')
-                                required
-                            >
+                            <input @checked(old('payment_method') === 'online') name="payment_method" required type="radio"
+                                value="online">
 
                             <span class="payment-card">
                                 <span class="payment-icon">📱</span>
-                                <span class="payment-title">Pembayaran Online</span>
+
+                                <span class="payment-title">
+                                    Pembayaran QRIS
+                                </span>
+
                                 <span class="payment-description">
-                                    Lanjutkan ke alur QRIS atau transfer bank.
+                                    Bayar menggunakan DANA, BRImo,
+                                    Livin', GoPay, ShopeePay, OVO,
+                                    dan aplikasi QRIS lainnya.
                                 </span>
                             </span>
                         </label>
@@ -783,8 +745,17 @@
                         <p class="field-error">{{ $message }}</p>
                     @enderror
 
-                    <div id="online-notice" class="online-notice" hidden>
-                        Integrasi pembayaran online masih dalam tahap pengembangan. Pesanan tetap dicatat dengan status menunggu pembayaran.
+                    <div class="online-notice" hidden id="online-notice">
+                        <strong>
+                            Pembayaran QRIS otomatis
+                        </strong>
+
+                        <div style="margin-top: 5px;">
+                            Setelah pesanan dibuat, QR pembayaran
+                            akan ditampilkan. Status pesanan akan
+                            diperbarui otomatis setelah pembayaran
+                            berhasil.
+                        </div>
                     </div>
                 </section>
 
@@ -803,13 +774,8 @@
                             Catatan Umum
                         </label>
 
-                        <textarea
-                            id="notes"
-                            class="form-textarea @error('notes') is-invalid @enderror"
-                            name="notes"
-                            maxlength="500"
-                            placeholder="Contoh: pesanan diantar bersamaan..."
-                        >{{ old('notes') }}</textarea>
+                        <textarea class="form-textarea @error('notes') is-invalid @enderror" id="notes" maxlength="500" name="notes"
+                            placeholder="Contoh: pesanan diantar bersamaan...">{{ old('notes') }}</textarea>
 
                         @error('notes')
                             <p class="field-error">{{ $message }}</p>
@@ -818,16 +784,12 @@
 
                     <div style="margin-top: 17px;">
                         <label class="confirmation-label">
-                            <input
-                                type="checkbox"
-                                name="confirmation"
-                                value="1"
-                                @checked(old('confirmation'))
-                                required
-                            >
+                            <input @checked(old('confirmation')) name="confirmation" required type="checkbox"
+                                value="1">
 
                             <span>
-                                Saya telah memeriksa menu, jumlah, catatan, nomor meja, dan total pembayaran pesanan ini.
+                                Saya telah memeriksa menu, jumlah, catatan, nomor meja, dan total pembayaran pesanan
+                                ini.
                             </span>
                         </label>
 
@@ -848,11 +810,8 @@
                     @foreach ($cart['items'] as $item)
                         <div class="summary-item">
                             @if ($item['image_url'])
-                                <img
-                                    class="summary-image"
-                                    src="{{ $item['image_url'] }}"
-                                    alt="{{ $item['name'] }}"
-                                >
+                                <img alt="{{ $item['name'] }}" class="summary-image"
+                                    src="{{ $item['image_url'] }}">
                             @else
                                 <div class="summary-placeholder">🍽</div>
                             @endif
@@ -887,7 +846,7 @@
                         <span>Rp{{ number_format($cart['total_amount'], 0, ',', '.') }}</span>
                     </div>
 
-                    <button id="submit-button" class="submit-button" type="submit">
+                    <button class="submit-button" id="submit-button" type="submit">
                         <span id="submit-label">Buat Pesanan</span>
                     </button>
 
@@ -916,9 +875,9 @@
             const isOnline = selected?.value === 'online';
 
             onlineNotice.hidden = !isOnline;
-            submitLabel.textContent = isOnline
-                ? 'Lanjut Pembayaran'
-                : 'Buat Pesanan';
+            submitLabel.textContent = isOnline ?
+                'Lanjut Pembayaran' :
+                'Buat Pesanan';
         }
 
         paymentInputs.forEach((input) => {

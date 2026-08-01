@@ -57,10 +57,10 @@ class OrderResource extends Resource
      */
     public static function getNavigationBadge(): ?string
     {
-        $count = Order::query()
-            ->whereNotIn('status', [
-                Order::STATUS_COMPLETED,
-                Order::STATUS_CANCELLED,
+        $count = static::getModel()::query()
+            ->whereIn('status', [
+                \App\Models\Order::STATUS_WAITING_PAYMENT,
+                \App\Models\Order::STATUS_WAITING_VERIFICATION,
             ])
             ->count();
 
@@ -69,10 +69,21 @@ class OrderResource extends Resource
             : null;
     }
 
+    public static function getNavigationBadgeColor(): ?string
+    {
+        return 'danger';
+    }
+
+    public static function getNavigationBadgeTooltip(): ?string
+    {
+        return 'Pesanan baru yang perlu segera ditangani';
+    }
+
     public static function getRelations(): array
     {
         return [];
     }
+
 
     public static function getPages(): array
     {

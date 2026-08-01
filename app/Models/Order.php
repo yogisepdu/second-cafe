@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
+use Illuminate\Database\Eloquent\Builder;
 
 class Order extends Model
 {
@@ -148,6 +149,7 @@ class Order extends Model
         };
     }
 
+
     public function getCashierCodeAttribute(): string
     {
         if (blank($this->order_code)) {
@@ -159,6 +161,35 @@ class Order extends Model
                 $this->order_code,
                 '-'
             )
+        );
+    }
+
+
+    /**
+     * Mencari pesanan menggunakan lima karakter
+     * terakhir dari order_code.
+     */
+    public function scopeForCashierCode(
+        Builder $query,
+        string $code,
+    ): Builder {
+        $normalizedCode = preg_replace(
+            '/[^a-zA-Z0-9]/',
+            '',
+            $code,
+        ) ?? '';
+
+        $normalizedCode = Str::upper(
+            substr(
+                $normalizedCode,
+                0,
+                5,
+            ),
+        );
+
+        return $query->whereRaw(
+            'UPPER(order_code) LIKE ?',
+            ['%-' . $normalizedCode],
         );
     }
 

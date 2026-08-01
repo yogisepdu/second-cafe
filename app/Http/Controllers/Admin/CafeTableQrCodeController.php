@@ -48,6 +48,19 @@ class CafeTableQrCodeController extends Controller
         );
     }
 
+    public function print(CafeTable $cafeTable): View
+    {
+        $this->ensureAdmin();
+
+        $result = $this->generateQrCode($cafeTable);
+
+        return view('admin.cafe-tables.qr-code', [
+            'cafeTable' => $cafeTable,
+            'orderingUrl' => $cafeTable->qr_url,
+            'qrCodeDataUri' => $result->getDataUri(),
+        ]);
+    }
+
     public function download(
         CafeTable $cafeTable
     ): Response {

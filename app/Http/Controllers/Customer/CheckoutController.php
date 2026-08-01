@@ -20,16 +20,22 @@ use Illuminate\View\View;
 
 class CheckoutController extends Controller
 {
+    /**
+     * Mengambil status terbaru pesanan pelanggan.
+     */
     public function status(
         string $token,
         Order $order,
     ): JsonResponse {
         $cafeTable = CafeTable::query()
-            ->where('qr_token', $token)
+            ->where(
+                'qr_token',
+                $token,
+            )
             ->firstOrFail();
 
         /*
-         * Memastikan order benar-benar berasal dari meja
+         * Memastikan pesanan berasal dari meja
          * yang sama dengan QR Code pada URL.
          */
         abort_unless(
@@ -39,15 +45,23 @@ class CheckoutController extends Controller
         );
 
         $order->refresh();
-        $order->load('payments');
 
-        $content = $this->customerStatusContent(
-            $order,
-        );
+        $order->load([
+            'payments',
+        ]);
+
+        $content =
+            $this->customerStatusContent(
+                $order,
+            );
 
         /*
-         * Belum dibayar: 60 menit sejak ordered_at.
-         * Sudah dibayar: 10 menit sejak paid_at.
+         * Belum dibayar:
+         * tracking berlaku 60 menit.
+         *
+         * Sudah dibayar:
+         * tracking mengikuti aturan yang terdapat
+         * pada CustomerOrderTracker.
          */
         $trackingExpiresAt =
             CustomerOrderTracker::expiresAt(
@@ -56,6 +70,19 @@ class CheckoutController extends Controller
 
         $trackingExpired =
             $trackingExpiresAt->isPast();
+
+        $paymentUrl =
+            $order->payment_method ===
+            Order::PAYMENT_METHOD_ONLINE
+            && $order->payment_status !==
+            Order::PAYMENT_STATUS_PAID
+            ? route(
+                'customer.payment.qris.show',
+                [
+                    'order' => $order,
+                ],
+            )
+            : null;
 
         return response()
             ->json([
@@ -80,8 +107,13 @@ class CheckoutController extends Controller
                 'payment_status_label' =>
                 $order->payment_status_label,
 
+                'payment_url' =>
+                $paymentUrl,
+
                 'progress_step' =>
-                $this->getProgressStep($order),
+                $this->getProgressStep(
+                    $order,
+                ),
 
                 'is_paid' =>
                 $order->payment_status ===
@@ -105,20 +137,24 @@ class CheckoutController extends Controller
 
                 'updated_at_label' =>
                 $order->updated_at
-                    ? $order->updated_at->format(
+                    ? $order->updated_at
+                    ->format(
                         'd M Y, H:i:s',
-                    ) . ' WIB'
+                    )
+                    . ' WIB'
                     : '-',
 
                 /*
-                 * Informasi ini digunakan halaman menu untuk
-                 * menghapus card berdasarkan status pembayaran.
+                 * Digunakan halaman menu untuk
+                 * menghapus card tracking yang
+                 * sudah kedaluwarsa.
                  */
                 'tracking_expired' =>
                 $trackingExpired,
 
                 'tracking_expires_at_timestamp' =>
-                $trackingExpiresAt->timestamp,
+                $trackingExpiresAt
+                    ->timestamp,
             ])
             ->withHeaders([
                 'Cache-Control' =>
@@ -126,17 +162,22 @@ class CheckoutController extends Controller
             ]);
     }
 
+    /**
+     * Menampilkan halaman checkout.
+     */
     public function create(
         string $token,
         CustomerCart $customerCart,
     ): View|RedirectResponse {
-        $cafeTable = $this->findActiveTable(
-            $token,
-        );
+        $cafeTable =
+            $this->findActiveTable(
+                $token,
+            );
 
-        $snapshot = $customerCart->snapshot(
-            $token,
-        );
+        $snapshot =
+            $customerCart->snapshot(
+                $token,
+            );
 
         $sessionItems = collect(
             $snapshot['items'],
@@ -144,9 +185,12 @@ class CheckoutController extends Controller
 
         if ($sessionItems->isEmpty()) {
             return redirect()
-                ->route('customer.menu', [
-                    'token' => $token,
-                ])
+                ->route(
+                    'customer.menu',
+                    [
+                        'token' => $token,
+                    ],
+                )
                 ->with(
                     'error',
                     'Keranjang masih kosong atau sudah kedaluwarsa.',
@@ -157,14 +201,22 @@ class CheckoutController extends Controller
             $sessionItems,
         );
 
+        /*
+         * Jika jumlah menu hasil database tidak
+         * sama dengan jumlah menu dalam session,
+         * berarti ada menu yang sudah tidak tersedia.
+         */
         if (
             count($cart['items']) !==
             $sessionItems->count()
         ) {
             return redirect()
-                ->route('customer.cart.show', [
-                    'token' => $token,
-                ])
+                ->route(
+                    'customer.cart.show',
+                    [
+                        'token' => $token,
+                    ],
+                )
                 ->with(
                     'error',
                     'Salah satu menu sudah tidak tersedia. Silakan periksa kembali keranjang.',
@@ -172,7 +224,8 @@ class CheckoutController extends Controller
         }
 
         $checkoutTokenKey =
-            $customerCart->checkoutTokenKey(
+            $customerCart
+            ->checkoutTokenKey(
                 $token,
             );
 
@@ -181,7 +234,8 @@ class CheckoutController extends Controller
         );
 
         if (blank($checkoutToken)) {
-            $checkoutToken = (string) Str::uuid();
+            $checkoutToken =
+                (string) Str::uuid();
 
             session()->put(
                 $checkoutTokenKey,
@@ -189,33 +243,47 @@ class CheckoutController extends Controller
             );
         }
 
-        return view('customer.checkout', [
-            'cafeTable' => $cafeTable,
-            'cart' => $cart,
-            'checkoutToken' => $checkoutToken,
-            'cartExpiresAt' =>
-            $snapshot['expires_at'],
-        ]);
+        return view(
+            'customer.checkout',
+            [
+                'cafeTable' =>
+                $cafeTable,
+
+                'cart' =>
+                $cart,
+
+                'checkoutToken' =>
+                $checkoutToken,
+
+                'cartExpiresAt' =>
+                $snapshot['expires_at'],
+            ],
+        );
     }
 
+    /**
+     * Menyimpan pesanan checkout.
+     */
     public function store(
         StoreCheckoutRequest $request,
         string $token,
         CustomerOrderTracker $orderTracker,
         CustomerCart $customerCart,
     ): RedirectResponse {
-        $cafeTable = $this->findActiveTable(
-            $token,
-        );
+        $cafeTable =
+            $this->findActiveTable(
+                $token,
+            );
 
         /*
-         * Membaca keranjang lebih dahulu. Jika sudah lewat
-         * 60 menit, CustomerCart akan menghapus keranjang
-         * beserta token checkout secara otomatis.
+         * Membaca keranjang terlebih dahulu.
+         * CustomerCart akan membersihkan keranjang
+         * yang sudah kedaluwarsa.
          */
-        $snapshot = $customerCart->snapshot(
-            $token,
-        );
+        $snapshot =
+            $customerCart->snapshot(
+                $token,
+            );
 
         $sessionItems = collect(
             $snapshot['items'],
@@ -223,18 +291,23 @@ class CheckoutController extends Controller
 
         if ($sessionItems->isEmpty()) {
             return redirect()
-                ->route('customer.menu', [
-                    'token' => $token,
-                ])
+                ->route(
+                    'customer.menu',
+                    [
+                        'token' => $token,
+                    ],
+                )
                 ->with(
                     'error',
                     'Keranjang sudah kosong atau sesi pemesanan telah berakhir.',
                 );
         }
 
-        $checkoutToken = $request->string(
-            'checkout_token',
-        )->toString();
+        $checkoutToken = $request
+            ->string(
+                'checkout_token',
+            )
+            ->toString();
 
         $this->validateCheckoutToken(
             $checkoutToken,
@@ -242,41 +315,86 @@ class CheckoutController extends Controller
             $customerCart,
         );
 
+        $validated =
+            $request->validated();
+
         /*
-         * Token checkout bersifat sekali pakai. Route checkout
-         * menggunakan session blocking, sehingga request kedua
-         * akan membaca token yang sudah dihapus dan tidak dapat
-         * membuat order baru.
-         *
-         * Jika transaksi gagal, pelanggan cukup memuat ulang
-         * halaman checkout untuk memperoleh token baru.
+         * Validasi tambahan untuk mencegah
+         * manipulasi metode pembayaran.
          */
-        session()->forget(
-            $customerCart->checkoutTokenKey(
-                $token,
-            ),
+        $paymentMethod = (string) (
+            $validated['payment_method'] ?? ''
         );
 
-        $validated = $request->validated();
+        if (
+            ! in_array(
+                $paymentMethod,
+                [
+                    Order::PAYMENT_METHOD_CASHIER,
+                    Order::PAYMENT_METHOD_ONLINE,
+                ],
+                true,
+            )
+        ) {
+            throw ValidationException::withMessages([
+                'payment_method' =>
+                'Metode pembayaran yang dipilih tidak valid.',
+            ]);
+        }
+
+        /*
+         * Token checkout hanya dapat digunakan
+         * satu kali untuk mencegah order ganda.
+         *
+         * Jika transaksi database gagal,
+         * pelanggan dapat memuat ulang halaman
+         * checkout untuk mendapatkan token baru.
+         */
+        session()->forget(
+            $customerCart
+                ->checkoutTokenKey(
+                    $token,
+                ),
+        );
 
         $order = DB::transaction(
             function () use (
                 $cafeTable,
                 $sessionItems,
                 $validated,
+                $paymentMethod,
             ): Order {
                 $menuIds = $sessionItems
                     ->pluck('menu_id')
                     ->filter()
                     ->map(
-                        fn($id): int => (int) $id
+                        fn(mixed $id): int =>
+                        (int) $id,
                     )
                     ->unique()
                     ->values();
 
+                if ($menuIds->isEmpty()) {
+                    throw ValidationException::withMessages([
+                        'cart' =>
+                        'Data menu pada keranjang tidak valid.',
+                    ]);
+                }
+
+                /*
+                 * Menu dikunci agar harga dan
+                 * ketersediaannya tidak berubah
+                 * selama proses checkout.
+                 */
                 $menus = Menu::query()
-                    ->whereIn('id', $menuIds)
-                    ->where('is_available', true)
+                    ->whereIn(
+                        'id',
+                        $menuIds,
+                    )
+                    ->where(
+                        'is_available',
+                        true,
+                    )
                     ->whereHas(
                         'category',
                         fn($query) =>
@@ -300,146 +418,209 @@ class CheckoutController extends Controller
                 }
 
                 $preparedItems = $sessionItems
-                    ->map(function (
-                        array $cartItem
-                    ) use ($menus): array {
-                        $menu = $menus->get(
-                            (int) (
-                                $cartItem['menu_id']
-                                ?? 0
-                            ),
-                        );
+                    ->map(
+                        function (
+                            array $cartItem,
+                        ) use (
+                            $menus,
+                        ): array {
+                            $menuId = (int) (
+                                $cartItem['menu_id'] ?? 0
+                            );
 
-                        if (!$menu) {
-                            throw ValidationException::withMessages([
-                                'cart' =>
-                                'Data menu tidak ditemukan.',
-                            ]);
-                        }
+                            $menu = $menus->get(
+                                $menuId,
+                            );
 
-                        $quantity = max(
-                            1,
-                            min(
-                                99,
-                                (int) (
-                                    $cartItem['quantity']
-                                    ?? 1
-                                ),
-                            ),
-                        );
+                            if (! $menu) {
+                                throw ValidationException::withMessages([
+                                    'cart' =>
+                                    'Data menu tidak ditemukan.',
+                                ]);
+                            }
 
-                        /*
-                         * Harga harus selalu berasal dari
-                         * database, bukan request atau session.
-                         */
-                        $unitPrice = round(
-                            (float) $menu->price,
-                            2,
-                        );
-
-                        $subtotal = round(
-                            $unitPrice * $quantity,
-                            2,
-                        );
-
-                        $selectedOptions =
-                            $cartItem['selected_options'] ?? [];
-
-                        return [
-                            'menu_id' =>
-                            $menu->getKey(),
-
-                            'menu_name' =>
-                            $menu->name,
-
-                            'unit_price' =>
-                            $unitPrice,
-
-                            'quantity' =>
-                            $quantity,
-
-                            'selected_options' =>
-                            is_array(
-                                $selectedOptions
-                            ) &&
-                                !empty($selectedOptions)
-                                ? array_values(
-                                    $selectedOptions,
-                                )
-                                : null,
-
-                            'subtotal' =>
-                            $subtotal,
-
-                            'notes' => filled(
-                                $cartItem['notes']
-                                    ?? null
-                            )
-                                ? Str::limit(
-                                    trim(
-                                        (string) (
-                                            $cartItem['notes']
-                                        ),
+                            $quantity = max(
+                                1,
+                                min(
+                                    99,
+                                    (int) (
+                                        $cartItem['quantity'] ?? 1
                                     ),
-                                    255,
-                                    '',
+                                ),
+                            );
+
+                            /*
+                             * Harga harus selalu
+                             * berasal dari database.
+                             */
+                            $unitPrice = round(
+                                (float) $menu
+                                    ->price,
+                                2,
+                            );
+
+                            $subtotal = round(
+                                $unitPrice
+                                    * $quantity,
+                                2,
+                            );
+
+                            $selectedOptions =
+                                $cartItem['selected_options'] ?? [];
+
+                            return [
+                                'menu_id' =>
+                                $menu
+                                    ->getKey(),
+
+                                'menu_name' =>
+                                $menu->name,
+
+                                'unit_price' =>
+                                $unitPrice,
+
+                                'quantity' =>
+                                $quantity,
+
+                                'selected_options' =>
+                                is_array($selectedOptions)
+                                    && ! empty($selectedOptions)
+                                    ? array_values(
+                                        $selectedOptions,
+                                    )
+                                    : null,
+
+                                'subtotal' =>
+                                $subtotal,
+
+                                'notes' => filled(
+                                    $cartItem['notes'] ?? null,
                                 )
-                                : null,
-                        ];
-                    })
+                                    ? Str::limit(
+                                        trim(
+                                            (string) (
+                                                $cartItem['notes']
+                                            ),
+                                        ),
+                                        255,
+                                        '',
+                                    )
+                                    : null,
+                            ];
+                        },
+                    )
                     ->values();
 
+                if (
+                    $preparedItems->isEmpty()
+                ) {
+                    throw ValidationException::withMessages([
+                        'cart' =>
+                        'Tidak ada menu yang dapat diproses.',
+                    ]);
+                }
+
                 $subtotal = round(
-                    (float) $preparedItems->sum(
-                        'subtotal',
-                    ),
+                    (float) $preparedItems
+                        ->sum('subtotal'),
                     2,
                 );
 
                 /*
-                 * Belum ada biaya layanan, pajak, diskon,
-                 * atau voucher pada tahap ini.
+                 * Saat ini belum terdapat:
+                 * - pajak
+                 * - biaya layanan
+                 * - diskon
+                 * - voucher
                  */
-                $totalAmount = $subtotal;
+                $totalAmount =
+                    $subtotal;
 
-                $order = Order::query()->create([
-                    'cafe_table_id' =>
-                    $cafeTable->getKey(),
+                if ($totalAmount <= 0) {
+                    throw ValidationException::withMessages([
+                        'cart' =>
+                        'Total pembayaran pesanan tidak valid.',
+                    ]);
+                }
 
-                    'customer_name' =>
-                    $validated['customer_name'],
+                /*
+                 * Status pembayaran awal:
+                 *
+                 * Bayar di kasir:
+                 * payment_status = unpaid
+                 *
+                 * Pembayaran online:
+                 * payment_status = pending
+                 */
+                $initialPaymentStatus =
+                    $paymentMethod ===
+                    Order::PAYMENT_METHOD_ONLINE
+                    ? Order::PAYMENT_STATUS_PENDING
+                    : Order::PAYMENT_STATUS_UNPAID;
 
-                    'customer_phone' =>
-                    $validated['customer_phone'],
+                $order = Order::query()
+                    ->create([
+                        'cafe_table_id' =>
+                        $cafeTable
+                            ->getKey(),
 
-                    'customer_email' =>
-                    $validated['customer_email'],
+                        'customer_name' =>
+                        $validated['customer_name'],
 
-                    'payment_method' =>
-                    $validated['payment_method'],
+                        'customer_phone' =>
+                        $validated['customer_phone'],
 
-                    'payment_status' =>
-                    Order::PAYMENT_STATUS_UNPAID,
+                        'customer_email' =>
+                        $validated['customer_email'],
 
-                    'status' =>
-                    Order::STATUS_WAITING_PAYMENT,
+                        'payment_method' =>
+                        $paymentMethod,
 
-                    'subtotal' => $subtotal,
+                        'payment_status' =>
+                        $initialPaymentStatus,
 
-                    'total_amount' =>
-                    $totalAmount,
+                        'status' =>
+                        Order::STATUS_WAITING_PAYMENT,
 
-                    'notes' =>
-                    $validated['notes'] ?? null,
-                ]);
+                        'subtotal' =>
+                        $subtotal,
+
+                        'total_amount' =>
+                        $totalAmount,
+
+                        'notes' => filled(
+                            $validated['notes'] ?? null,
+                        )
+                            ? Str::limit(
+                                trim(
+                                    (string) (
+                                        $validated['notes']
+                                    ),
+                                ),
+                                500,
+                                '',
+                            )
+                            : null,
+
+                        'ordered_at' =>
+                        now(),
+                    ]);
 
                 foreach (
-                    $preparedItems as $preparedItem
+                    $preparedItems
+                    as $preparedItem
                 ) {
                     $order
                         ->items()
-                        ->create($preparedItem);
+                        ->create(
+                            $preparedItem,
+                        );
                 }
+
+                $order->load([
+                    'items',
+                    'cafeTable',
+                ]);
 
                 return $order;
             },
@@ -447,33 +628,74 @@ class CheckoutController extends Controller
         );
 
         /*
-         * Keranjang hanya dihapus setelah seluruh transaksi
-         * database berhasil disimpan.
+         * Keranjang hanya dihapus setelah
+         * order dan seluruh item berhasil
+         * disimpan ke database.
          */
-        $customerCart->clear($token);
+        $customerCart->clear(
+            $token,
+        );
 
+        /*
+         * Menyimpan order ke tracker agar
+         * pelanggan dapat memantau statusnya.
+         */
         $orderTracker->remember(
             $cafeTable,
             $order,
         );
 
+        /*
+         * Pembayaran online diarahkan ke
+         * halaman QRIS Midtrans.
+         */
+        if (
+            $order->payment_method ===
+            Order::PAYMENT_METHOD_ONLINE
+        ) {
+            return redirect()->route(
+                'customer.payment.qris.show',
+                [
+                    'order' => $order,
+                ],
+            );
+        }
+
+        /*
+         * Pembayaran kasir diarahkan ke
+         * halaman sukses yang menampilkan
+         * kode pembayaran kasir.
+         */
         return redirect()->route(
             'customer.orders.success',
             [
-                'token' => $token,
-                'order' => $order,
+                'token' =>
+                $token,
+
+                'order' =>
+                $order,
             ],
         );
     }
 
+    /**
+     * Menampilkan halaman sukses pesanan.
+     */
     public function success(
         string $token,
         Order $order,
     ): View {
         $cafeTable = CafeTable::query()
-            ->where('qr_token', $token)
+            ->where(
+                'qr_token',
+                $token,
+            )
             ->firstOrFail();
 
+        /*
+         * Memastikan pesanan berasal dari meja
+         * yang sama dengan token pada URL.
+         */
         abort_unless(
             (int) $order->cafe_table_id ===
                 (int) $cafeTable->getKey(),
@@ -488,14 +710,20 @@ class CheckoutController extends Controller
         return view(
             'customer.order-success',
             [
-                'cafeTable' => $cafeTable,
-                'order' => $order,
+                'cafeTable' =>
+                $cafeTable,
+
+                'order' =>
+                $order,
             ],
         );
     }
 
+    /**
+     * Menentukan langkah progress pesanan.
+     */
     private function getProgressStep(
-        Order $order
+        Order $order,
     ): int {
         if (
             $order->payment_status !==
@@ -505,14 +733,24 @@ class CheckoutController extends Controller
         }
 
         return match ($order->status) {
-            Order::STATUS_PROCESSING => 2,
-            Order::STATUS_READY => 3,
-            Order::STATUS_COMPLETED => 4,
-            default => 1,
+            Order::STATUS_PROCESSING =>
+            2,
+
+            Order::STATUS_READY =>
+            3,
+
+            Order::STATUS_COMPLETED =>
+            4,
+
+            default =>
+            1,
         };
     }
 
     /**
+     * Membuat konten status pesanan
+     * yang ditampilkan kepada pelanggan.
+     *
      * @return array{
      *     headline: string,
      *     message: string,
@@ -521,8 +759,11 @@ class CheckoutController extends Controller
      * }
      */
     private function customerStatusContent(
-        Order $order
+        Order $order,
     ): array {
+        /*
+         * Pesanan dibatalkan.
+         */
         if (
             $order->status ===
             Order::STATUS_CANCELLED
@@ -542,10 +783,16 @@ class CheckoutController extends Controller
             ];
         }
 
+        /*
+         * Pembayaran belum berhasil.
+         */
         if (
             $order->payment_status !==
             Order::PAYMENT_STATUS_PAID
         ) {
+            /*
+             * Pembayaran melalui kasir.
+             */
             if (
                 $order->payment_method ===
                 Order::PAYMENT_METHOD_CASHIER
@@ -565,21 +812,56 @@ class CheckoutController extends Controller
                 ];
             }
 
+            /*
+             * Pembayaran QRIS gagal,
+             * dibatalkan, atau kedaluwarsa.
+             */
+            if (
+                in_array(
+                    $order->payment_status,
+                    [
+                        Order::PAYMENT_STATUS_FAILED,
+                        Order::PAYMENT_STATUS_CANCELLED,
+                    ],
+                    true,
+                )
+            ) {
+                return [
+                    'headline' =>
+                    'Pembayaran QRIS Belum Berhasil',
+
+                    'message' =>
+                    'Pembayaran sebelumnya gagal, dibatalkan, atau waktu QRIS telah habis.',
+
+                    'instruction_title' =>
+                    'Silakan buat QR pembayaran baru.',
+
+                    'instruction_message' =>
+                    'Buka kembali halaman pembayaran QRIS kemudian lakukan pembayaran menggunakan QR yang baru.',
+                ];
+            }
+
+            /*
+             * Pembayaran QRIS masih pending.
+             */
             return [
                 'headline' =>
-                'Menunggu Pembayaran Online',
+                'Menunggu Pembayaran QRIS',
 
                 'message' =>
-                'Selesaikan pembayaran online agar pesanan dapat segera diproses.',
+                'Scan QRIS menggunakan DANA, BRImo, Livin\', GoPay, ShopeePay, OVO, atau aplikasi QRIS lainnya.',
 
                 'instruction_title' =>
-                'Pembayaran belum selesai.',
+                'Pembayaran belum diterima.',
 
                 'instruction_message' =>
-                'Silakan selesaikan proses QRIS atau transfer bank.',
+                'Selesaikan pembayaran sebelum batas waktu QRIS berakhir. Status akan diperbarui secara otomatis.',
             ];
         }
 
+        /*
+         * Pembayaran sudah berhasil.
+         */
         return match ($order->status) {
             Order::STATUS_PROCESSING => [
                 'headline' =>
@@ -639,30 +921,50 @@ class CheckoutController extends Controller
         };
     }
 
+    /**
+     * Mencari meja aktif berdasarkan token QR.
+     */
     private function findActiveTable(
-        string $token
+        string $token,
     ): CafeTable {
         return CafeTable::query()
-            ->where('qr_token', $token)
-            ->where('is_active', true)
+            ->where(
+                'qr_token',
+                $token,
+            )
+            ->where(
+                'is_active',
+                true,
+            )
             ->firstOrFail();
     }
 
+    /**
+     * Menyusun ulang keranjang checkout
+     * berdasarkan data menu terbaru.
+     */
     private function buildCheckoutCart(
-        Collection $sessionItems
+        Collection $sessionItems,
     ): array {
         $menuIds = $sessionItems
             ->pluck('menu_id')
             ->filter()
             ->map(
-                fn($id): int => (int) $id
+                fn(mixed $id): int =>
+                (int) $id,
             )
             ->unique()
             ->values();
 
         $menus = Menu::query()
-            ->whereIn('id', $menuIds)
-            ->where('is_available', true)
+            ->whereIn(
+                'id',
+                $menuIds,
+            )
+            ->where(
+                'is_available',
+                true,
+            )
             ->whereHas(
                 'category',
                 fn($query) =>
@@ -675,108 +977,121 @@ class CheckoutController extends Controller
             ->keyBy('id');
 
         $items = $sessionItems
-            ->map(function (
-                array $cartItem
-            ) use ($menus): ?array {
-                $menu = $menus->get(
-                    (int) (
-                        $cartItem['menu_id']
-                        ?? 0
-                    ),
-                );
-
-                if (!$menu) {
-                    return null;
-                }
-
-                $quantity = max(
-                    1,
-                    min(
-                        99,
+            ->map(
+                function (
+                    array $cartItem,
+                ) use (
+                    $menus,
+                ): ?array {
+                    $menu = $menus->get(
                         (int) (
-                            $cartItem['quantity']
-                            ?? 1
+                            $cartItem['menu_id'] ?? 0
                         ),
-                    ),
-                );
+                    );
 
-                $unitPrice = round(
-                    (float) $menu->price,
-                    2,
-                );
+                    if (! $menu) {
+                        return null;
+                    }
 
-                return [
-                    'line_id' =>
-                    $cartItem['line_id']
-                        ?? null,
+                    $quantity = max(
+                        1,
+                        min(
+                            99,
+                            (int) (
+                                $cartItem['quantity'] ?? 1
+                            ),
+                        ),
+                    );
 
-                    'menu_id' =>
-                    $menu->getKey(),
-
-                    'name' =>
-                    $menu->name,
-
-                    'image_url' =>
-                    filled($menu->image)
-                        ? Storage::disk(
-                            'public',
-                        )->url(
-                            $menu->image,
-                        )
-                        : null,
-
-                    'unit_price' =>
-                    $unitPrice,
-
-                    'quantity' =>
-                    $quantity,
-
-                    'selected_options' =>
-                    $cartItem['selected_options'] ?? [],
-
-                    'notes' =>
-                    $cartItem['notes'] ?? null,
-
-                    'subtotal' => round(
-                        $unitPrice * $quantity,
+                    $unitPrice = round(
+                        (float) $menu->price,
                         2,
-                    ),
-                ];
-            })
+                    );
+
+                    return [
+                        'line_id' =>
+                        $cartItem['line_id'] ?? null,
+
+                        'menu_id' =>
+                        $menu->getKey(),
+
+                        'name' =>
+                        $menu->name,
+
+                        'image_url' =>
+                        filled($menu->image)
+                            ? Storage::disk(
+                                'public',
+                            )->url(
+                                $menu->image,
+                            )
+                            : null,
+
+                        'unit_price' =>
+                        $unitPrice,
+
+                        'quantity' =>
+                        $quantity,
+
+                        'selected_options' =>
+                        $cartItem['selected_options'] ?? [],
+
+                        'notes' =>
+                        $cartItem['notes'] ?? null,
+
+                        'subtotal' => round(
+                            $unitPrice
+                                * $quantity,
+                            2,
+                        ),
+                    ];
+                },
+            )
             ->filter()
             ->values();
 
         $subtotal = round(
-            (float) $items->sum('subtotal'),
+            (float) $items->sum(
+                'subtotal',
+            ),
             2,
         );
 
         return [
-            'items' => $items->all(),
+            'items' =>
+            $items->all(),
 
             'total_quantity' =>
-            (int) $items->sum('quantity'),
+            (int) $items->sum(
+                'quantity',
+            ),
 
-            'subtotal' => $subtotal,
+            'subtotal' =>
+            $subtotal,
 
-            'total_amount' => $subtotal,
+            'total_amount' =>
+            $subtotal,
         ];
     }
 
+    /**
+     * Memvalidasi token checkout sekali pakai.
+     */
     private function validateCheckoutToken(
         string $checkoutToken,
         string $tableToken,
         CustomerCart $customerCart,
     ): void {
         $sessionToken = session()->get(
-            $customerCart->checkoutTokenKey(
-                $tableToken,
-            ),
+            $customerCart
+                ->checkoutTokenKey(
+                    $tableToken,
+                ),
         );
 
         if (
-            blank($sessionToken) ||
-            !hash_equals(
+            blank($sessionToken)
+            || ! hash_equals(
                 (string) $sessionToken,
                 $checkoutToken,
             )

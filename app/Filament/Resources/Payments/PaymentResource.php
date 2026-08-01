@@ -2,8 +2,6 @@
 
 namespace App\Filament\Resources\Payments;
 
-use App\Filament\Resources\Payments\Pages\CreatePayment;
-use App\Filament\Resources\Payments\Pages\EditPayment;
 use App\Filament\Resources\Payments\Pages\ListPayments;
 use App\Filament\Resources\Payments\Schemas\PaymentForm;
 use App\Filament\Resources\Payments\Tables\PaymentsTable;
@@ -19,9 +17,20 @@ class PaymentResource extends Resource
 {
     protected static ?string $model = Payment::class;
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
+    protected static string|BackedEnum|null $navigationIcon =
+    Heroicon::OutlinedBanknotes;
 
-    protected static ?string $recordTitleAttribute = 'title';
+    protected static ?string $navigationLabel =
+    'Pembayaran';
+
+    protected static ?string $modelLabel =
+    'Pembayaran';
+
+    protected static ?string $pluralModelLabel =
+    'Pembayaran';
+
+    protected static ?string $recordTitleAttribute =
+    'payment_code';
 
     protected static string|UnitEnum|null $navigationGroup =
     'Operasional';
@@ -40,17 +49,13 @@ class PaymentResource extends Resource
 
     public static function getRelations(): array
     {
-        return [
-            //
-        ];
+        return [];
     }
 
     public static function getPages(): array
     {
         return [
             'index' => ListPayments::route('/'),
-            'create' => CreatePayment::route('/create'),
-            'edit' => EditPayment::route('/{record}/edit'),
         ];
     }
 }

@@ -13,14 +13,14 @@ class Payment extends Model
     public const METHOD_BANK_TRANSFER =
     'transfer_bank';
 
+    public const METHOD_CASHIER = 'cashier';
+
     public const STATUS_WAITING_VERIFICATION =
     'menunggu_verifikasi';
 
     public const STATUS_SUCCESS = 'berhasil';
 
     public const STATUS_REJECTED = 'ditolak';
-
-    public const METHOD_CASHIER = 'cashier';
 
     protected $fillable = [
         'order_id',
@@ -35,6 +35,13 @@ class Payment extends Model
         'rejection_reason',
         'paid_at',
         'verified_at',
+        'gateway',
+        'gateway_order_id',
+        'gateway_transaction_id',
+        'qr_code_url',
+        'qr_string',
+        'expires_at',
+        'gateway_payload',
     ];
 
     protected function casts(): array
@@ -45,11 +52,17 @@ class Payment extends Model
             'change_amount' => 'decimal:2',
             'paid_at' => 'datetime',
             'verified_at' => 'datetime',
+            'expires_at' => 'datetime',
+            'gateway_payload' => 'array',
         ];
     }
 
     protected static function booted(): void
     {
+        /*
+         * Membuat kode pembayaran otomatis
+         * ketika pembayaran baru disimpan.
+         */
         static::creating(function (
             Payment $payment
         ): void {
@@ -57,11 +70,23 @@ class Payment extends Model
                 $payment->payment_code =
                     self::generatePaymentCode();
             }
+
+            /*
+             * Jika pembayaran langsung dibuat dengan
+             * status berhasil, isi paid_at otomatis.
+             */
+            if (
+                $payment->status ===
+                self::STATUS_SUCCESS &&
+                blank($payment->paid_at)
+            ) {
+                $payment->paid_at = now();
+            }
         });
 
         /*
-         * Waktu pembayaran hanya diisi ketika
-         * pembayaran dinyatakan berhasil.
+         * Mengisi paid_at ketika status pembayaran
+         * yang sudah ada diubah menjadi berhasil.
          */
         static::updating(function (
             Payment $payment
@@ -80,13 +105,19 @@ class Payment extends Model
     private static function generatePaymentCode(): string
     {
         do {
-            $code = 'PAY-'
-                . now()->format('Ymd')
-                . '-'
-                . Str::upper(Str::random(5));
+            $code =
+                'PAY-' .
+                now()->format('Ymd') .
+                '-' .
+                Str::upper(
+                    Str::random(5),
+                );
         } while (
             self::query()
-            ->where('payment_code', $code)
+            ->where(
+                'payment_code',
+                $code,
+            )
             ->exists()
         );
 
@@ -95,7 +126,9 @@ class Payment extends Model
 
     public function order(): BelongsTo
     {
-        return $this->belongsTo(Order::class);
+        return $this->belongsTo(
+            Order::class,
+        );
     }
 
     public function verifier(): BelongsTo

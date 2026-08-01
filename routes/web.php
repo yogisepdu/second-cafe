@@ -5,6 +5,10 @@ use App\Http\Controllers\Customer\CartController;
 use App\Http\Controllers\Customer\CheckoutController;
 use App\Http\Controllers\Customer\MenuController;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\LaporanDownloadController;
+use App\Http\Controllers\Customer\QrisPaymentController;
+use App\Http\Controllers\MidtransWebhookController;
+
 
 /*
 |--------------------------------------------------------------------------
@@ -48,6 +52,37 @@ Route::pattern(
 Route::get('/', function () {
     return view('welcome');
 })->name('home');
+
+Route::get(
+    '/pesanan/{order}/pembayaran-qris',
+    [
+        QrisPaymentController::class,
+        'show',
+    ],
+)->name(
+    'customer.payment.qris.show',
+);
+
+Route::get(
+    '/pesanan/{order}/pembayaran-qris/status',
+    [
+        QrisPaymentController::class,
+        'status',
+    ],
+)->name(
+    'customer.payment.qris.status',
+);
+
+Route::post(
+    '/payments/midtrans/notification',
+    [
+        MidtransWebhookController::class,
+        'handle',
+    ],
+)->name(
+    'midtrans.notification',
+);
+
 
 /*
 |--------------------------------------------------------------------------
