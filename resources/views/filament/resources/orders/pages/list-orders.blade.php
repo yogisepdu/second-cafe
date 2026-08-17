@@ -4,22 +4,22 @@
     
         audio: null,
     
-        /*
-         * Alpine akan menjalankan init() secara otomatis
-         * saat halaman selesai dimuat.
-         */
         init() {
-            this.audio = new Audio(
-                @js(asset('sounds/new-order-notification.mp3'))
-            );
-    
-            this.audio.preload = 'auto';
-            this.audio.volume = 0.85;
-    
             /*
-             * Memuat file suara lebih awal agar tidak terlambat
-             * ketika pesanan baru masuk.
+             * Mengambil elemen audio yang sumbernya adalah
+             * file MP3 milik Anda.
              */
+            this.audio = this.$refs.orderNotificationAudio;
+    
+            if (!this.audio) {
+                console.error(
+                    'Elemen audio notifikasi tidak ditemukan.'
+                );
+    
+                return;
+            }
+    
+            this.audio.volume = 0.85;
             this.audio.load();
         },
     
@@ -38,8 +38,8 @@
             }
     
             /*
-             * Suara diputar ketika pengguna menekan tombol.
-             * Interaksi ini membantu membuka izin audio browser.
+             * Memutar MP3 ketika tombol ditekan sekaligus
+             * membuka izin audio dari browser.
              */
             await this.playSound();
     
@@ -51,7 +51,7 @@
                     await window.Notification.requestPermission();
                 } catch (error) {
                     console.warn(
-                        'Izin notifikasi browser tidak dapat diminta:',
+                        'Izin notifikasi browser gagal diminta:',
                         error
                     );
                 }
@@ -74,8 +74,8 @@
     
             try {
                 /*
-                 * Menghentikan suara sebelumnya supaya suara
-                 * notifikasi selalu dimulai dari awal.
+                 * Selalu mulai MP3 dari awal agar setiap
+                 * pesanan menghasilkan suara notifikasi penuh.
                  */
                 this.audio.pause();
                 this.audio.currentTime = 0;
@@ -83,13 +83,13 @@
                 await this.audio.play();
             } catch (error) {
                 console.warn(
-                    'Suara notifikasi belum diizinkan browser:',
+                    'Browser belum mengizinkan pemutaran suara:',
                     error
                 );
             }
         },
     
-        async notify(detail) {
+        async notify(detail = {}) {
             await this.playSound();
     
             if (
@@ -118,6 +118,15 @@
             }
         },
     }" x-on:new-order-received.window="notify($event.detail)">
+        {{--
+            File yang harus tersedia:
+            public/sounds/new-order-notification.mp3
+        --}}
+        <audio class="hidden" preload="auto" x-ref="orderNotificationAudio">
+            <source src="{{ asset('sounds/new-order-notification.mp3') }}" type="audio/mpeg">
+
+            Browser Anda tidak mendukung pemutaran audio.
+        </audio>
         {{-- ====================================================== --}}
         {{-- PANEL PEMANTAUAN PESANAN --}}
         {{-- ====================================================== --}}

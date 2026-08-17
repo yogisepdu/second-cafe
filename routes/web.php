@@ -9,7 +9,6 @@ use App\Http\Controllers\LaporanDownloadController;
 use App\Http\Controllers\Customer\QrisPaymentController;
 use App\Http\Controllers\MidtransWebhookController;
 
-
 /*
 |--------------------------------------------------------------------------
 | Pola Parameter Route
@@ -49,9 +48,7 @@ Route::pattern(
 |--------------------------------------------------------------------------
 */
 
-Route::get('/', function () {
-    return view('welcome');
-})->name('home');
+Route::redirect('/', '/admin/login');
 
 Route::get(
     '/pesanan/{order}/pembayaran-qris',
