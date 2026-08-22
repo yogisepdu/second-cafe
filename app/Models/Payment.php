@@ -35,6 +35,7 @@ class Payment extends Model
         'rejection_reason',
         'paid_at',
         'verified_at',
+        'receipt_emailed_at',
         'gateway',
         'gateway_order_id',
         'gateway_transaction_id',
@@ -52,6 +53,7 @@ class Payment extends Model
             'change_amount' => 'decimal:2',
             'paid_at' => 'datetime',
             'verified_at' => 'datetime',
+            'receipt_emailed_at' => 'datetime',
             'expires_at' => 'datetime',
             'gateway_payload' => 'array',
         ];

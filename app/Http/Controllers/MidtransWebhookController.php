@@ -3,29 +3,26 @@
 namespace App\Http\Controllers;
 
 use App\Services\Payments\MidtransPaymentSynchronizer;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class MidtransWebhookController extends Controller
 {
-    public function handle(Request $request): JsonResponse
-    {
+    public function handle(
+        Request $request,
+        MidtransPaymentSynchronizer $synchronizer
+    ): JsonResponse {
         $payload = $request->json()->all();
 
         Log::info('Notifikasi Midtrans diterima.', [
-            'payload' => $payload,
+            'order_id' => $payload['order_id'] ?? null,
+            'transaction_status' => $payload['transaction_status'] ?? null,
             'ip' => $request->ip(),
-            'user_agent' => $request->userAgent(),
         ]);
 
-        /*
-     * Request pemeriksaan koneksi.
-     *
-     * Tidak ada transaksi yang diproses dan tidak ada data
-     * pembayaran yang diubah. Endpoint hanya memberitahukan
-     * bahwa URL dapat dijangkau.
-     */
         $requiredFields = [
             'order_id',
             'status_code',
@@ -34,35 +31,30 @@ class MidtransWebhookController extends Controller
             'signature_key',
         ];
 
-        $isCompleteTransactionNotification = collect(
-            $requiredFields,
-        )->every(
-            fn(string $field): bool => filled(
-                $payload[$field] ?? null,
-            ),
-        );
-
-        if (! $isCompleteTransactionNotification) {
-            Log::info(
-                'Pemeriksaan koneksi endpoint Midtrans berhasil.',
+        $isCompleteNotification = collect($requiredFields)
+            ->every(
+                fn(string $field): bool =>
+                filled($payload[$field] ?? null)
             );
 
+        /*
+         * Digunakan ketika Midtrans hanya memeriksa
+         * apakah endpoint dapat diakses.
+         */
+        if (! $isCompleteNotification) {
             return response()->json([
                 'success' => true,
                 'message' => 'Midtrans notification endpoint is reachable.',
-            ], 200);
+            ]);
         }
 
-        /*
-     * Mulai validasi untuk notifikasi transaksi nyata.
-     */
         $serverKey = (string) config(
-            'services.midtrans.server_key',
+            'services.midtrans.server_key'
         );
 
         if ($serverKey === '') {
             Log::error(
-                'MIDTRANS_SERVER_KEY belum dikonfigurasi.',
+                'MIDTRANS_SERVER_KEY belum dikonfigurasi.'
             );
 
             return response()->json([
@@ -76,21 +68,18 @@ class MidtransWebhookController extends Controller
             (string) $payload['order_id']
                 . (string) $payload['status_code']
                 . (string) $payload['gross_amount']
-                . $serverKey,
+                . $serverKey
         );
 
-        if (
-            ! hash_equals(
-                $expectedSignature,
-                (string) $payload['signature_key'],
-            )
-        ) {
+        if (! hash_equals(
+            $expectedSignature,
+            (string) $payload['signature_key']
+        )) {
             Log::warning(
                 'Signature notifikasi Midtrans tidak valid.',
                 [
-                    'order_id' =>
-                    $payload['order_id'] ?? null,
-                ],
+                    'order_id' => $payload['order_id'] ?? null,
+                ]
             );
 
             return response()->json([
@@ -99,14 +88,40 @@ class MidtransWebhookController extends Controller
             ], 403);
         }
 
-        /*
-     * Lanjutkan kode pemrosesan pembayaran Anda
-     * setelah bagian ini.
-     */
+        try {
+            /*
+             * Service ini memperbarui status payment
+             * menjadi berhasil. Setelah status berubah,
+             * PaymentObserver otomatis memicu email.
+             */
+            $payment = $synchronizer->synchronize(
+                $payload
+            );
+        } catch (ModelNotFoundException $exception) {
+            Log::warning(
+                'Notifikasi valid tetapi pembayaran tidak ditemukan.',
+                [
+                    'order_id' => $payload['order_id'],
+                ]
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Transaksi tidak ditemukan pada database lokal.',
+            ]);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Notifikasi Midtrans belum dapat diproses.',
+            ], 500);
+        }
 
         return response()->json([
             'success' => true,
             'message' => 'Notifikasi Midtrans berhasil diproses.',
-        ], 200);
+            'payment_status' => $payment->status,
+        ]);
     }
 }

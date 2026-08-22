@@ -20,39 +20,27 @@ class StoreCheckoutRequest extends FormRequest
      */
     protected function prepareForValidation(): void
     {
+        $customerPhone = preg_replace(
+            '/\s+/',
+            '',
+            trim((string) $this->input('customer_phone'))
+        ) ?? '';
+
         $this->merge([
             'customer_name' => trim(
-                (string) $this->input(
-                    'customer_name'
-                )
+                (string) $this->input('customer_name')
             ),
 
-            'customer_phone' => preg_replace(
-                '/\s+/',
-                '',
-                trim(
-                    (string) $this->input(
-                        'customer_phone'
-                    )
-                )
-            ),
+            'customer_phone' => $customerPhone,
 
             'customer_email' => strtolower(
                 trim(
-                    (string) $this->input(
-                        'customer_email'
-                    )
+                    (string) $this->input('customer_email')
                 )
             ),
 
-            'notes' => filled(
-                $this->input('notes')
-            )
-                ? trim(
-                    (string) $this->input(
-                        'notes'
-                    )
-                )
+            'notes' => filled($this->input('notes'))
+                ? trim((string) $this->input('notes'))
                 : null,
         ]);
     }
@@ -138,6 +126,9 @@ class StoreCheckoutRequest extends FormRequest
             'customer_phone.required' =>
             'Nomor HP wajib diisi.',
 
+            'customer_phone.string' =>
+            'Nomor HP harus berupa teks.',
+
             'customer_phone.min' =>
             'Nomor HP minimal 9 karakter.',
 
@@ -148,7 +139,10 @@ class StoreCheckoutRequest extends FormRequest
             'Format nomor HP tidak valid.',
 
             'customer_email.required' =>
-            'Email untuk pengiriman struk wajib diisi.',
+            'Email untuk pengiriman bukti pembayaran wajib diisi.',
+
+            'customer_email.string' =>
+            'Email harus berupa teks.',
 
             'customer_email.email' =>
             'Format alamat email tidak valid.',
@@ -161,6 +155,9 @@ class StoreCheckoutRequest extends FormRequest
 
             'payment_method.in' =>
             'Metode pembayaran yang dipilih tidak tersedia.',
+
+            'notes.string' =>
+            'Catatan pesanan harus berupa teks.',
 
             'notes.max' =>
             'Catatan pesanan maksimal 500 karakter.',
@@ -179,26 +176,13 @@ class StoreCheckoutRequest extends FormRequest
     public function attributes(): array
     {
         return [
-            'checkout_token' =>
-            'sesi checkout',
-
-            'customer_name' =>
-            'nama pelanggan',
-
-            'customer_phone' =>
-            'nomor HP',
-
-            'customer_email' =>
-            'email',
-
-            'payment_method' =>
-            'metode pembayaran',
-
-            'notes' =>
-            'catatan pesanan',
-
-            'confirmation' =>
-            'konfirmasi pesanan',
+            'checkout_token' => 'sesi checkout',
+            'customer_name' => 'nama pelanggan',
+            'customer_phone' => 'nomor HP',
+            'customer_email' => 'email bukti pembayaran',
+            'payment_method' => 'metode pembayaran',
+            'notes' => 'catatan pesanan',
+            'confirmation' => 'konfirmasi pesanan',
         ];
     }
 }

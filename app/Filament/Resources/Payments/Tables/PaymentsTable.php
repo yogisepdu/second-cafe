@@ -137,6 +137,36 @@ class PaymentsTable
                         },
                     ),
 
+                TextColumn::make('email_receipt_status')
+                    ->label('Email Bukti')
+                    ->state(function (Payment $record): string {
+                        if (filled($record->receipt_emailed_at)) {
+                            return 'Terkirim';
+                        }
+
+                        if ($record->status === Payment::STATUS_SUCCESS) {
+                            return 'Menunggu';
+                        }
+
+                        return 'Tidak Dikirim';
+                    })
+                    ->description(
+                        fn(Payment $record): ?string =>
+                        $record->receipt_emailed_at?->format('d M Y H:i')
+                    )
+                    ->badge()
+                    ->color(function (Payment $record): string {
+                        if (filled($record->receipt_emailed_at)) {
+                            return 'success';
+                        }
+
+                        if ($record->status === Payment::STATUS_SUCCESS) {
+                            return 'warning';
+                        }
+
+                        return 'gray';
+                    }),
+
                 TextColumn::make(
                     'verifier.name'
                 )

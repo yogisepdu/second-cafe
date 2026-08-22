@@ -75,10 +75,8 @@ Route::post(
     [
         MidtransWebhookController::class,
         'handle',
-    ],
-)->name(
-    'midtrans.notification',
-);
+    ]
+)->name('midtrans.notification');
 
 
 /*
