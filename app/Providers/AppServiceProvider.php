@@ -23,5 +23,6 @@ class AppServiceProvider extends ServiceProvider
     {
         //
         Order::observe(OrderObserver::class);
+        Payment::observe(PaymentObserver::class);
     }
 }
